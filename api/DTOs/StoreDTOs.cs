@@ -1,0 +1,1 @@
+public record CreateStoreRequest(string name, string description = "");
