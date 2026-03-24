@@ -43,14 +43,12 @@ public static class ItemEndpoints
         group.MapPost("/create", async (CreateItemRequest request, AppDbContext db, ClaimsPrincipal user) =>
         {
             //Checks
-            var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-            if (userId == null) return Results.Unauthorized();
+            int userId = user.GetUserId();
 
             var store = await db.Stores.FirstOrDefaultAsync(s => s.Id == request.storeId);
 
             if (store == null) return Results.NotFound("This store does not exist.");
-            if (store.OwnerId != int.Parse(userId)) return Results.Forbid();
+            if (store.OwnerId != userId) return Results.Forbid();
             
             //Makes a new item with given information
             var newItem = new Item
@@ -94,14 +92,12 @@ public static class ItemEndpoints
         group.MapPost("/{itemId}/images", async (int itemId, IFormFile file, AppDbContext db, ClaimsPrincipal user) =>
         {
             //Checks
-            var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-            if (userId == null) return Results.Unauthorized();
+            int userId = user.GetUserId();
 
             var item = await db.Items.Include(i => i.Store).FirstOrDefaultAsync(i => i.Id == itemId);
 
             if (item == null) return Results.NotFound("Item not found.");
-            if (item.Store.OwnerId != int.Parse(userId)) return Results.Forbid();
+            if (item.Store.OwnerId != userId) return Results.Forbid();
 
             if (file == null || file.Length == 0) return Results.BadRequest("No file was uploaded.");
 
@@ -190,8 +186,7 @@ public static class ItemEndpoints
                         img.Order,
                         Url = $"{baseUrl}/item_images/{img.FileName}"
                     })
-            })
-            .FirstOrDefaultAsync();
+            }).FirstOrDefaultAsync();
 
             return item != null ? Results.Ok(item) : Results.NotFound();
         });
@@ -199,11 +194,8 @@ public static class ItemEndpoints
         //Updates an item
         group.MapPut("/{id}", async (int id, UpdateItemRequest request, AppDbContext db, ClaimsPrincipal user, IWebHostEnvironment env) =>
         {
-            //TODO maybe take the checks out in seperate methods?
             //Checks
-            var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-            if (userId == null) return Results.Unauthorized();
+            int userId = user.GetUserId();
 
             var item = await db.Items
                 .Include(i => i.Tags)
@@ -212,7 +204,7 @@ public static class ItemEndpoints
                 .FirstOrDefaultAsync(i => i.Id == id);
 
             if (item == null) return Results.NotFound("Item not found.");
-            if (item.Store.OwnerId != int.Parse(userId)) return Results.Forbid();
+            if (item.Store.OwnerId != userId) return Results.Forbid();
 
             //Update item details
             item.Name = request.name ?? item.Name;
@@ -273,5 +265,36 @@ public static class ItemEndpoints
             //Maybe make it so it sends the new item if needed
             return Results.NoContent();
         }).RequireAuthorization();
+
+        group.MapGet("/search", async (string query, AppDbContext db, HttpContext httpContext) =>
+        {
+            //Checks if the query is empty
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                return Results.BadRequest("Search quert can't be empty");
+            }
+
+            var baseUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
+
+            //Makes a list of items
+            var items = await db.Items
+                .AsNoTracking()
+                //Looks for items where the query is in the name, description, or search terms (not case-sensitive)
+                .Where(i => EF.Functions.ILike(i.Name, $"%{query}%") ||
+                            (i.Description != null && EF.Functions.ILike(i.Description, $"%{query}%")) ||
+                            (i.SearchTerms != null && i.SearchTerms.Any(term => EF.Functions.ILike(term, $"%{query}%"))))
+                .Select(i => new
+                {
+                    i.Id,
+                    i.Name,
+                    i.Price,
+                    ImageUrl = i.Images
+                        .OrderBy(img => img.Order)
+                        .Select(img => $"{baseUrl}/item_images/{img.FileName}")
+                        .FirstOrDefault()
+                }).ToListAsync();
+
+            return Results.Ok(items);
+        });
     }
 }

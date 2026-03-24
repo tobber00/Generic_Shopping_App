@@ -7,7 +7,7 @@ public class Item
     public string? Description { get; set; }
     public int Stock { get; set; }
     public string[]? SearchTerms { get; set; }
-    public Store Store {get; set; } = null!;
+    public Store Store { get; set; } = null!;
     public ICollection<ItemImage> Images { get; set; } = new List<ItemImage>();
     public ICollection<Tag>? Tags { get; set; } = new List<Tag>();
 }

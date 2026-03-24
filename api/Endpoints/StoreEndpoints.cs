@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,29 +11,35 @@ public static class StoreEndpoints
         //Create a store
         group.MapPost("/create", async (CreateStoreRequest request, AppDbContext db, ClaimsPrincipal user) =>
         {
-            //checks
-            var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-            if (userId == null) return Results.Unauthorized();
-
-            //Making the store element
-            var newStore = new Store
+            try
             {
-                OwnerId = int.Parse(userId),
-                Name = request.name,
-                Description = request.description
-            };
+                //Checks the user id from the token
+                int userId = user.GetUserId();
 
-            //Adding to database
-            try 
-            {
-                db.Stores.Add(newStore);
-                await db.SaveChangesAsync();
-                return Results.Created($"/Stores/{newStore.Id}", newStore);
+                //Making the store element
+                var newStore = new Store
+                {
+                    OwnerId = userId,
+                    Name = request.name,
+                    Description = request.description
+                    
+                };
+
+                //Adding to database
+                try 
+                {
+                    db.Stores.Add(newStore);
+                    await db.SaveChangesAsync();
+                    return Results.Created($"/Stores/{newStore.Id}", newStore);
+                }
+                catch (DbUpdateException)
+                {
+                    return Results.Conflict("A store with that name already exists.");
+                }
             }
-            catch (DbUpdateException)
+            catch (UnauthorizedAccessException)
             {
-                return Results.Conflict("A store with that name already exists.");
+                return Results.Unauthorized();
             }
         }).RequireAuthorization();
         
@@ -44,17 +51,25 @@ public static class StoreEndpoints
             //Checks
             if (file == null || file.Length == 0) return Results.BadRequest("No file uploaded");
 
-            var userId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-            if (userId == null) return Results.Unauthorized();
+            int userId = user.GetUserId();
 
             var store = await db.Stores.FirstOrDefaultAsync(s => s.Id == storeId);
 
             if (store == null) return Results.BadRequest("Store does not exists.");
 
-            if (store.OwnerId != int.Parse(userId))
+            if (store.OwnerId != userId)
             {
                 return Results.Forbid();
+            }
+
+            //Delete old logo if one already exists
+            if (!string.IsNullOrEmpty(store.Logo))
+            {
+                var existingFilePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot/logos", store.Logo);
+                if (File.Exists(existingFilePath))
+                {
+                    File.Delete(existingFilePath);
+                }
             }
 
             //Check file extension
@@ -76,11 +91,71 @@ public static class StoreEndpoints
                 await file.CopyToAsync(stream);
             }
 
-            //Update store Bool
-            store.HasLogo = true;
+            //Update store logo filename
+            store.Logo = fileName;
             await db.SaveChangesAsync();
 
             return Results.Ok(new { Message = "Logo uploaded successfully" });
         }).RequireAuthorization().DisableAntiforgery();
+
+        //TODO add endpoint to edit store
+
+
+        //Get a specific store
+        group.MapGet("/{id}", async (int id, AppDbContext db, HttpContext httpContext) =>
+        {
+            var baseUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
+
+            //Fetches store based on ID
+            var store = await db.Stores
+                .AsNoTracking()
+                .Where(s => s.Id == id)
+                .Select(s => new
+            {
+                //Store details
+                s.Id,
+                s.Name,
+                s.Description,
+                LogoUrl = s.Logo != null ? $"{baseUrl}/logos/{s.Logo}" : null,
+
+                //Owner information
+                Owner = new
+                {
+                    s.Owner.Username
+                }
+            }).FirstOrDefaultAsync();
+
+            return store != null ? Results.Ok(store) : Results.NotFound();
+        });
+
+        //Search for stores (Look into GIN Index later if optimization is needed)
+        group.MapGet("/search", async (string query, AppDbContext db, HttpContext httpContext) =>
+        {
+            //Checks if the query is empty
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                return Results.BadRequest("Search quert can't be empty");
+            }
+
+            var baseUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
+
+            //Makes a list of stores
+            var stores = await db.Stores
+                .AsNoTracking()
+                //Looks for stores where the query is in the name or description (not case-sensitive)
+                .Where(s => EF.Functions.ILike(s.Name, $"%{query}%") ||
+                            EF.Functions.ILike(s.Description ?? "", $"%{query}%"))
+                .Select(s => new
+                {
+                    s.Id,
+                    s.Name,
+                    LogoUrl = s.Logo != null ? $"{baseUrl}/logos/{s.Logo}" : null,
+                })
+                //The stores show up in alphabetical order (based on name), this can be changed later to something more relevant
+                .OrderBy(s => s.Name)
+                .ToListAsync();
+
+            return Results.Ok(stores);
+        });
     }
 }
