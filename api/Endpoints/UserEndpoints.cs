@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 
 public static class UserEndpoints
 {
+
+    //TODO maybe make it so username isn't casesensitive
     public static void MapUserEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/user");
@@ -10,13 +12,13 @@ public static class UserEndpoints
         group.MapPost("/register", async (RegisterRequest request, AppDbContext db) =>
         {
             //Hash the password
-            string hash = BCrypt.Net.BCrypt.HashPassword(request.Password);
+            string hash = BCrypt.Net.BCrypt.HashPassword(request.password);
 
             //Makes a new user object
             var newUser = new User 
             { 
-                Username = request.Username,
-                Email = request.Email,
+                Username = request.username,
+                Email = request.email,
                 //Links to credential table and saves the hashed password
                 Credential = new UserCredential 
                 { 
@@ -45,10 +47,10 @@ public static class UserEndpoints
             //Tries to fetch user from database
             var user = await db.Users
                 .Include(u => u.Credential)
-                .FirstOrDefaultAsync(u => u.Username == request.Username);
+                .FirstOrDefaultAsync(u => u.Username == request.username);
 
             //Checks if the user exists and passwords matches
-            if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.Credential!.PasswordHash))
+            if (user == null || !BCrypt.Net.BCrypt.Verify(request.password, user.Credential!.PasswordHash))
             {
                 return Results.Unauthorized();
             }

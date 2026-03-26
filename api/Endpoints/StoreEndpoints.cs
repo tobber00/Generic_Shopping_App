@@ -22,7 +22,6 @@ public static class StoreEndpoints
                     OwnerId = userId,
                     Name = request.name,
                     Description = request.description
-                    
                 };
 
                 //Adding to database
@@ -102,9 +101,8 @@ public static class StoreEndpoints
 
 
         //Get a specific store
-        group.MapGet("/{id}", async (int id, AppDbContext db, HttpContext httpContext) =>
+        group.MapGet("/{id}", async (int id, AppDbContext db, FileUrlProvider urlProvider) =>
         {
-            var baseUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
 
             //Fetches store based on ID
             var store = await db.Stores
@@ -116,7 +114,7 @@ public static class StoreEndpoints
                 s.Id,
                 s.Name,
                 s.Description,
-                LogoUrl = s.Logo != null ? $"{baseUrl}/logos/{s.Logo}" : null,
+                LogoUrl = urlProvider.GetLogoUrl(s.Logo),
 
                 //Owner information
                 Owner = new
@@ -129,15 +127,13 @@ public static class StoreEndpoints
         });
 
         //Search for stores (Look into GIN Index later if optimization is needed)
-        group.MapGet("/search", async (string query, AppDbContext db, HttpContext httpContext) =>
+        group.MapGet("/search", async (string query, AppDbContext db, FileUrlProvider urlProvider) =>
         {
             //Checks if the query is empty
             if (string.IsNullOrWhiteSpace(query))
             {
                 return Results.BadRequest("Search quert can't be empty");
             }
-
-            var baseUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
 
             //Makes a list of stores
             var stores = await db.Stores
@@ -149,7 +145,7 @@ public static class StoreEndpoints
                 {
                     s.Id,
                     s.Name,
-                    LogoUrl = s.Logo != null ? $"{baseUrl}/logos/{s.Logo}" : null,
+                    LogoUrl = urlProvider.GetLogoUrl(s.Logo)
                 })
                 //The stores show up in alphabetical order (based on name), this can be changed later to something more relevant
                 .OrderBy(s => s.Name)

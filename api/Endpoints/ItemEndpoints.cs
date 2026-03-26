@@ -9,8 +9,14 @@ public static class ItemEndpoints
         var group = app.MapGroup("/item");
 
         //Get items based on store or tag (Minimal information, ment for list views)
-        group.MapGet("/getList", async (int? storeId, int? tagId, AppDbContext db, HttpContext httpContext) =>
+        group.MapGet("/getList", async (int? storeId, int? tagId, AppDbContext db, FileUrlProvider urlProvider) =>
         {
+            //Skips if no ID is given
+            if(!storeId.HasValue && !tagId.HasValue)
+            {
+                return Results.BadRequest("No store or tag was given");
+            }
+            
             var query = db.Items.AsQueryable();
 
             //Checks if a store- or tag list is requested
@@ -18,9 +24,8 @@ public static class ItemEndpoints
                 query = query.Where(i => i.StoreId == storeId.Value);
 
             else if (tagId.HasValue)
-                query = query.Where(i => i.Tags != null && i.Tags.Any(t => t.Id == tagId));
+                query = query.Where(i => i.Tags.Any(t => t.Id == tagId.Value));
 
-            var baseUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
 
             //Makes the result list
             var result = await query
@@ -31,7 +36,7 @@ public static class ItemEndpoints
                     i.Price,
                     ImageUrl = i.Images
                         .OrderBy(img => img.Order)
-                        .Select(img => $"{baseUrl}/item_images/{img.FileName}")
+                        .Select(img => urlProvider.GetItemImageUrl(img.FileName))
                         .FirstOrDefault()
                 })
                 .ToListAsync();
@@ -145,10 +150,8 @@ public static class ItemEndpoints
         }).RequireAuthorization().DisableAntiforgery();
 
         //Get a specific item (Includes everything)
-        group.MapGet("/{id}", async (int id, AppDbContext db, HttpContext httpContext) =>
+        group.MapGet("/{id}", async (int id, AppDbContext db, FileUrlProvider urlProvider) =>
         {
-            var baseUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
-
             //Fetches item based on item ID
             var item = await db.Items
                 .AsNoTracking()
@@ -171,7 +174,7 @@ public static class ItemEndpoints
                 },
                 
                 //Adds tags
-                Tags = (i.Tags ?? new List<Tag>()).Select(t => new
+                Tags = i.Tags.Select(t => new
                 {
                     t.Id,
                     t.Name
@@ -184,7 +187,7 @@ public static class ItemEndpoints
                     {
                         img.Id,
                         img.Order,
-                        Url = $"{baseUrl}/item_images/{img.FileName}"
+                        Url = urlProvider.GetItemImageUrl(img.FileName)
                     })
             }).FirstOrDefaultAsync();
 
@@ -266,15 +269,13 @@ public static class ItemEndpoints
             return Results.NoContent();
         }).RequireAuthorization();
 
-        group.MapGet("/search", async (string query, AppDbContext db, HttpContext httpContext) =>
+        group.MapGet("/search", async (string query, AppDbContext db, FileUrlProvider urlProvider) =>
         {
             //Checks if the query is empty
             if (string.IsNullOrWhiteSpace(query))
             {
                 return Results.BadRequest("Search quert can't be empty");
             }
-
-            var baseUrl = $"{httpContext.Request.Scheme}://{httpContext.Request.Host}";
 
             //Makes a list of items
             var items = await db.Items
@@ -290,7 +291,7 @@ public static class ItemEndpoints
                     i.Price,
                     ImageUrl = i.Images
                         .OrderBy(img => img.Order)
-                        .Select(img => $"{baseUrl}/item_images/{img.FileName}")
+                        .Select(img => urlProvider.GetItemImageUrl(img.FileName))
                         .FirstOrDefault()
                 }).ToListAsync();
 

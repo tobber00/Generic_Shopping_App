@@ -15,6 +15,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddOpenApi();
 
 builder.Services.AddScoped<TokenService>();
+builder.Services.AddSingleton<FileUrlProvider>();
 
 builder.Services.AddAuthentication("Bearer").AddJwtBearer(options =>
 {
@@ -59,6 +60,9 @@ app.MapUserEndpoints();
 app.MapStoreEndpoints();
 //ITEM
 app.MapItemEndpoints();
+
+//Makes images in the wwwroot foulder accessible
+app.UseStaticFiles();
 
 app.Run();
 

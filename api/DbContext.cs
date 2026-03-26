@@ -25,8 +25,8 @@ public class AppDbContext : DbContext
 
         //Item has ONE store Id, Stores can have MANY items
         modelBuilder.Entity<Item>()
-            .HasOne<Store>()
-            .WithMany()                 
+            .HasOne(i => i.Store)
+            .WithMany()                
             .HasForeignKey(i => i.StoreId)
             .OnDelete(DeleteBehavior.Cascade);
 

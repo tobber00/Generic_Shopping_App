@@ -1,2 +1,2 @@
-public record RegisterRequest(string Username, string Email, string Password);
-public record LoginRequest(string Username, string Password);
+public record RegisterRequest(string username, string email, string password);
+public record LoginRequest(string username, string password);
