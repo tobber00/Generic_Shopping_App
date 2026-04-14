@@ -9,4 +9,5 @@ public class Store
     public string? Description { get; set; }
 
     public User Owner { get; set; } = null!;
+    public ICollection<Item> Items { get; set; } = new List<Item>();
 }

@@ -97,7 +97,29 @@ public static class StoreEndpoints
             return Results.Ok(new { Message = "Logo uploaded successfully" });
         }).RequireAuthorization().DisableAntiforgery();
 
-        //TODO add endpoint to edit store
+        //Edit store
+        group.MapPut("/{id}", async (int id, UpdateStoreRequest request, AppDbContext db, ClaimsPrincipal user) =>
+        {
+            //Checks user
+            int userId = user.GetUserId();
+
+            //Get the store
+            var store = await db.Stores
+                .FirstOrDefaultAsync(s => s.Id == id);
+            
+            //Checks store
+            if (store == null) return Results.NotFound("Store not found.");
+            if (store.OwnerId != userId) return Results.Forbid();
+
+            //Update store details
+            store.Name = request.name ?? store.Name;
+            store.Description = request.description ?? store.Description;
+
+            //Save changes in database
+            await db.SaveChangesAsync();
+            
+            return Results.NoContent();
+        }).RequireAuthorization();
 
 
         //Get a specific store
@@ -153,5 +175,52 @@ public static class StoreEndpoints
 
             return Results.Ok(stores);
         });
+
+        //Delete a store
+        group.MapDelete("/{id}", async (int id, AppDbContext db, ClaimsPrincipal user, IWebHostEnvironment env) =>
+        {
+            //Checks user
+            int userId = user.GetUserId();
+            
+            //Get store and item images
+            var store = await db.Stores
+                .Include(s => s.Items)
+                .ThenInclude(i => i.Images)
+                .FirstOrDefaultAsync(s => s.Id == id);
+            
+            //Checks store
+            if (store == null) return Results.NotFound("Store not found.");
+            if (store.OwnerId != userId) return Results.Forbid();
+
+            //Makes a list of item images that should be delted
+            var itemImagesToDelete = store.Items
+                .SelectMany(i => i.Images)
+                .Select(img => img.FileName)
+                .ToList();
+
+            //Removes store from the database
+            db.Stores.Remove(store);
+            await db.SaveChangesAsync();
+
+            var itemImagesFolder = Path.Combine(env.WebRootPath, "item_images");
+            var logosFolder = Path.Combine(env.WebRootPath, "logos");
+
+            //Checks if the store has a logo
+            if (!string.IsNullOrEmpty(store.Logo))
+            {
+                var logoPath = Path.Combine(logosFolder, store.Logo);
+                //Deletes store logo
+                if (File.Exists(logoPath)) File.Delete(logoPath);
+            }
+
+            //Loops through item images and deletes them if they exists
+            foreach (var fileName in itemImagesToDelete)
+            {
+                var filePath = Path.Combine(itemImagesFolder, fileName);
+                if (File.Exists(filePath)) File.Delete(filePath);
+            }
+
+            return Results.NoContent();
+        }).RequireAuthorization();
     }
 }

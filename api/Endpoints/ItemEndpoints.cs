@@ -85,7 +85,15 @@ public static class ItemEndpoints
             {
                 db.Items.Add(newItem);
                 await db.SaveChangesAsync();
-                return Results.Created($"/items/{newItem.Id}", newItem);
+
+                //TODO Check this later
+                return Results.Created($"/items/{newItem.Id}", new{
+                    newItem.Id,
+                    newItem.Name,
+                    newItem.Price,
+                    newItem.Description,
+                    StoreId = newItem.StoreId
+                });
             }
             catch (DbUpdateException)
             {
@@ -265,7 +273,7 @@ public static class ItemEndpoints
 
             //Saves changes in database
             await db.SaveChangesAsync();
-            //Maybe make it so it sends the new item if needed
+            //TODO Maybe make it so it sends the new item if needed
             return Results.NoContent();
         }).RequireAuthorization();
 
@@ -297,5 +305,42 @@ public static class ItemEndpoints
 
             return Results.Ok(items);
         });
+
+        group.MapDelete("/{id}", async (int id, AppDbContext db, ClaimsPrincipal user, IWebHostEnvironment env) =>
+        {
+            //Checks user
+            int userId = user.GetUserId();
+
+            //Creates item
+            var item = await db.Items
+                .Include(i => i.Store)
+                .Include(i => i.Images)
+                .FirstOrDefaultAsync(s => s.Id == id);
+            
+            //Checks item
+            if (item == null) return Results.NotFound("Item not found.");
+            if (item.Store.OwnerId != userId) return Results.Forbid();
+
+            //Makes a list of item images that should be delted
+            var itemImagesToDelete = item.Images
+                .Select(img => img.FileName)
+                .ToList();
+
+            //Removes item from the database
+            db.Items.Remove(item);
+            await db.SaveChangesAsync();
+
+            //Gets path for image folder
+            var itemImagesFolder = Path.Combine(env.WebRootPath, "item_images");
+
+            //Loops through item images and deletes them if they exists
+            foreach (var filename in itemImagesToDelete)
+            {
+                var filePath = Path.Combine(itemImagesFolder, filename);
+                if (File.Exists(filePath)) File.Delete(filePath);
+            }
+
+            return Results.NoContent();
+        }).RequireAuthorization();
     }
 }
